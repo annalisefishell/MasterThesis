@@ -1,15 +1,14 @@
 import numpy as np
 import rasterio
 import geopandas as gpd
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
+import plotting as p
 
 from shapely.geometry import box, mapping
 from rasterio.mask import mask
 from rasterio.merge import merge
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 
+WANTED_RES = 0.00018 # approx 20 meters
 
 # Once per region
 def find_largest_rectangle_geometry(polygon, steps=30, aspect_ratio=1.1):
@@ -40,36 +39,34 @@ def find_largest_rectangle_geometry(polygon, steps=30, aspect_ratio=1.1):
 
 
 def merge_rasters(list_of_files, output_path):
-    # Open the two datasets
-    src_files_to_mosaic = []
-    for fp in list_of_files:
-        src = rasterio.open(fp)
-        src_files_to_mosaic.append(src)
+    if len(list_of_files)>1:
+        # Open the two datasets
+        src_files_to_mosaic = []
+        for fp in list_of_files:
+            src = rasterio.open(fp)
+            src_files_to_mosaic.append(src)
 
-    # Merge them
-    mosaic, out_trans = merge(src_files_to_mosaic)
+        # Merge them
+        mosaic, out_trans = merge(src_files_to_mosaic)
 
-    # Get metadata from one of the input files
-    out_meta = src.meta.copy()
-    out_meta.update({
-        "driver": "GTiff",
-        "height": mosaic.shape[1],
-        "width": mosaic.shape[2],
-        "transform": out_trans,
-        "count": mosaic.shape[0]  # Number of bands
-    })
+        # Get metadata from one of the input files
+        out_meta = src.meta.copy()
+        out_meta.update({
+            "driver": "GTiff",
+            "height": mosaic.shape[1],
+            "width": mosaic.shape[2],
+            "transform": out_trans,
+            "count": mosaic.shape[0]  # Number of bands
+        })
 
-    # Output path
-    output_path = 'data/Panama/S2_merged_20211210.tif'
+        # Write to disk
+        with rasterio.open(output_path, "w", **out_meta) as dest:
+            dest.write(mosaic)
 
-    # Write to disk
-    with rasterio.open(output_path, "w", **out_meta) as dest:
-        dest.write(mosaic)
-
-    print(f"Merged file saved to {output_path}")
+        print(f"Merged file saved to {output_path}")
 
 
-def reproject_and_clip_raster(raster_path, geometry_gdf, output_path, wanted_res):
+def reproject_and_clip_raster(raster_path, geometry_gdf, output_path):
     # Read input raster
     with rasterio.open(raster_path) as src:
         # Get target CRS from geometry
@@ -77,7 +74,7 @@ def reproject_and_clip_raster(raster_path, geometry_gdf, output_path, wanted_res
         
         # Calculate transform and dimensions for new resolution and CRS
         transform, width, height = calculate_default_transform(
-            src.crs, target_crs, src.width, src.height, *src.bounds, resolution=wanted_res
+            src.crs, target_crs, src.width, src.height, *src.bounds, resolution=WANTED_RES
         )
 
         # Create destination array and metadata
@@ -139,3 +136,112 @@ def open_tif_file(file_path):
 # Normalizing
 def min_max_normalize(array):
     return (array - np.nanmin(array)) / (np.nanmax(array) - np.nanmin(array))
+
+
+
+# Read the data
+def get_sentinel2(aoi, file_path, padding, temp_file='', list_files=[], plot=True):
+    if len(list_files) > 0:
+        if len(list_files) > 1:
+            merge_rasters(list_files, temp_file)
+        reproject_and_clip_raster(temp_file, aoi.geometry, file_path)
+
+    else:
+        s2_data, profile = open_tif_file(file_path)
+
+        data = []
+        for band in range(s2_data.shape[0]):
+            vmin, vmax = np.percentile(s2_data[band], [0, 99]) #- cut top 1 percent for all bands
+            temp = np.where(s2_data[band] <= vmax, s2_data[band], 0)
+            data.append(min_max_normalize(temp))
+        data = np.pad(np.array(data), padding, mode='constant')
+
+        if plot:
+            title = 'Sentinel 2 - Red Band ' + file_path.split('/')[-1].split('_')[2]
+            p.plot_raster(data[3], title, 'RdGy_r')
+
+        return data, profile
+
+
+def get_interferogram(aoi, file_path, padding, original_path='', plot=True):
+    if original_path != '':
+        reproject_and_clip_raster(original_path, aoi.geometry, file_path)
+    else:
+        data, profile = open_tif_file(file_path)
+        data = min_max_normalize(data)
+        data = np.pad(data, padding, mode='constant')
+        data = np.ma.masked_invalid(data)
+
+        if plot:
+            title = 'Sentinel 1 - Interferogram ' + '-'.join(file_path.split('/')[-1].split('_')[0:2])
+            p.plot_raster(data[0], title, 'viridis')
+
+        return data, profile
+
+
+def get_capella(aoi, file_path, padding, original_file='', plot=True):
+    if original_file != '':
+        reproject_and_clip_raster(original_file, aoi.geometry, file_path)
+    else:
+        data, profile = open_tif_file(file_path)
+
+        vmin, vmax = np.percentile(data[0], [0, 99.5])
+        data = np.where(data[0] <= vmax, data[0], np.nan)
+        data = np.pad(data, padding, mode='constant')
+        data = np.expand_dims(np.ma.masked_invalid(min_max_normalize(data)), axis=0)
+        
+        if plot:
+            title = 'Capella - Backscatter ' + file_path.split('/')[-1].split('_')[1]
+            p.plot_raster(data[0], title, 'coolwarm')
+
+        return data, profile
+
+
+def get_iceye(aoi, file_path, padding, original_file='', plot=True):
+    if original_file != '':
+        reproject_and_clip_raster(original_file, aoi.geometry, file_path, WANTED_RES)
+    else:
+        data, profile = open_tif_file(file_path)
+
+        vmin, vmax = np.percentile(data[0], [0, 99.5])
+        data = np.where(data[0] <= vmax, data[0], np.nan)
+        data = np.pad(data, padding, mode='constant')
+        data = np.expand_dims(np.ma.masked_invalid(min_max_normalize(data)), axis=0)
+        
+        if plot:
+            title = 'Iceye - Backscatter ' + file_path.split('/')[-1].split('_')[-2]
+            p.plot_raster(data[0], title, 'coolwarm')
+
+        return data, profile
+
+
+def get_terrasar(aoi, file_path, padding, original_file='', plot=True):
+    if original_file != '':
+        reproject_and_clip_raster(original_file, aoi.geometry, file_path, WANTED_RES)
+    else:
+        data, profile = open_tif_file(file_path)
+
+        vmin, vmax = np.percentile(data[0], [0, 99.5])
+        data = np.where(data[0] <= vmax, data[0], np.nan)
+        data = np.pad(data, padding, mode='constant')
+        data = np.expand_dims(np.ma.masked_invalid(min_max_normalize(data)), axis=0)
+        
+        if plot:
+            p.plot_raster(data[0], 'TerraSAR - Polarizarion HH (23/05/2022)', 'coolwarm')
+
+        return data, profile
+
+
+def get_ref_data(aoi, file_path, padding, original_path='', plot=True):
+    if original_path != '':
+        reproject_and_clip_raster(original_path, aoi.geometry, file_path)
+    else:
+        data, profile = open_tif_file(file_path)
+
+        data = np.expand_dims(np.pad(data[0], padding, mode='constant'), axis=0)
+
+        if plot:
+            p.plot_raster(data[0], 'Woody AGB 2019 - Harris et al. 2021', 'rainbow', 
+                          normalized=False, cbar_label='Mg/ha')
+            
+        return data, profile
