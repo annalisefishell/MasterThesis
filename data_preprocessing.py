@@ -38,6 +38,13 @@ def find_largest_rectangle_geometry(polygon, steps=30, aspect_ratio=1.1):
     return best_rect
 
 
+def shrink_polygon(poly, frac=1/40):
+    minx, miny, maxx, maxy = poly.bounds
+    dx = (maxx - minx) * frac
+    dy = (maxy - miny) * frac * (6/5)
+    return box(minx + dx, miny + dy, maxx - dx, maxy - dy)
+
+
 def merge_rasters(list_of_files, output_path):
     if len(list_of_files)>1:
         # Open the two datasets
