@@ -5,9 +5,10 @@ from sklearn.ensemble import RandomForestRegressor
 import xgboost as xgb
 from sklearn.metrics import r2_score, root_mean_squared_error
 import tensorflow as tf
-from tensorflow.python.keras.models import Sequential, Model
-from tensorflow.python.keras.layers import Input, MaxPool2D, Conv2D, Conv2DTranspose, \
-   Concatenate, Dropout, LeakyReLU, Dense, Activation, MaxPooling2D, UpSampling2D
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.layers import Input, MaxPool2D, Conv2D, Conv2DTranspose, \
+      Concatenate, Dropout, LeakyReLU, Dense, Activation, MaxPooling2D, \
+      UpSampling2D, Flatten
 import time
 
 def gbt(X_train, y_train, X_test, y_test, X_2d, height, width, 
@@ -36,7 +37,7 @@ def gbt(X_train, y_train, X_test, y_test, X_2d, height, width,
       
       # Reshape prediction to original 2D format for visualization or further use
       pred_image = model.predict(X_2d).reshape(height, width)
-      p.plot_raster(pred_image, 'MLR Prediction', 'rainbow', normalized=False, cbar_label='Mg/ha')
+      p.plot_raster(pred_image, 'GBT Prediction', 'rainbow', normalized=False, cbar_label='Mg/ha')
     
     return pred, running_time, rmse, r2
 
@@ -70,7 +71,7 @@ def rf(X_train, y_train, X_test, y_test, X_2d, height, width,
         
         # Reshape prediction to original 2D format for visualization or further use
         pred_image = model.predict(X_2d).reshape(height, width)
-        p.plot_raster(pred_image, 'MLR Prediction', 'rainbow', normalized=False, cbar_label='Mg/ha')
+        p.plot_raster(pred_image, 'RF Prediction', 'rainbow', normalized=False, cbar_label='Mg/ha')
     
     return pred, running_time, rmse, r2
 
@@ -121,3 +122,65 @@ def parameter_experiments(num_trees, max_tree_depths, num_sims, model, X_train,
                 r2_list.append(r2)
             output_dict.update({str(tree_num) + ',' + str(depth): [time_list, rmse_list, r2_list]})
     return output_dict
+
+
+def r2_score(y_true, y_pred):
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
+    y_true = tf.reshape(y_true, [-1])
+    y_pred = tf.reshape(y_pred, [-1])
+
+    true_mean = tf.reduce_mean(y_true)
+    pred_mean = tf.reduce_mean(y_pred)
+
+    cov = tf.reduce_sum((y_true - true_mean) * (y_pred - pred_mean))
+    var_true = tf.reduce_sum(tf.square(y_true - true_mean))
+    var_pred = tf.reduce_sum(tf.square(y_pred - pred_mean))
+    corr = cov / (tf.sqrt(var_true * var_pred) + tf.keras.backend.epsilon())
+    
+    return tf.square(corr)
+
+
+def cnn(X_train, y_train, X_test, y_test, original_shape=(0,0,0), output=False, patch_size=200, 
+        architecture='simple'):
+    start = time.time()
+    input_shape = (patch_size, patch_size, X_train.shape[-1])
+
+    if architecture=='simple':
+        model = Sequential([
+            Input(shape=input_shape),
+            Conv2D(16, 3, padding='same', activation='relu'),
+            MaxPooling2D(2),
+            Conv2D(32, 3, padding='same', activation='relu'),
+            UpSampling2D(2),  # restore spatial dims
+            Conv2D(original_shape, 3, padding='same', activation='linear')
+        ])
+
+    if output:
+        model.summary()
+
+    model.compile(
+        optimizer = 'adam',
+        loss='mse',
+        metrics=['root_mean_squared_error', r2_score]
+    )
+
+    # 6. Train using NumPy arrays
+    model.fit(
+        x=X_train,
+        y=y_train,
+        batch_size=16,
+        validation_data=(X_test, y_test),
+        epochs=10
+    )
+    
+    runtime = time.time() - start
+    loss, rmse, r2 = model.evaluate(X_test, y_test, batch_size=16)
+
+    if output:
+        print(f"Training Time: {runtime:.2f} seconds")
+        print(f"Test MSE: {loss:.4f}")
+        print(f"Test RMSE: {rmse}")
+        print(f"Test R2: {r2}")
+
+    return model, runtime, rmse, r2

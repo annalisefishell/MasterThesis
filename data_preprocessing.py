@@ -8,6 +8,9 @@ from rasterio.mask import mask
 from rasterio.merge import merge
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 
+from sklearn.model_selection import train_test_split
+from sklearn.impute import SimpleImputer
+
 WANTED_RES = 0.00018 # approx 20 meters
 
 # Once per region
@@ -252,3 +255,66 @@ def get_ref_data(aoi, file_path, padding, original_path='', plot=True):
                           normalized=False, cbar_label='Mg/ha')
             
         return data, profile
+    
+
+def extract_patches(img, patch_size, overlap=0):
+    h, w = img.shape[:2]
+    step = patch_size - overlap
+    patches = []
+    for i in range(0, h - patch_size + 1, step):
+        for j in range(0, w - patch_size + 1, step):
+            patches.append(img[i:i+patch_size, j:j+patch_size, :])
+    return np.array(patches)
+        
+
+def get_test_train_data(combined, n_pixels, n_bands, ref_data, test_percent=0.3, cnn=False, 
+                        patch_size=200, overlap=0):
+    if not cnn:
+        X_2d = np.transpose(combined, (1, 2, 0)).reshape(n_pixels, n_bands)
+        y_1d = ref_data.reshape(n_pixels)
+
+        # Impute missing values in X (mean strategy)
+        imputer = SimpleImputer(strategy='mean')
+        X_2d = imputer.fit_transform(X_2d)
+
+        # Split into test and train 
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_2d, y_1d, test_size=test_percent, random_state=42
+        )
+
+        return X_train, X_test, y_train, y_test, X_2d
+    else:
+        all_img_patches = []
+        all_target_patches = []
+        for img in combined:
+            img = np.expand_dims(img, axis=2)
+            img_p = extract_patches(img, patch_size, overlap)
+            all_img_patches.append(img_p)
+        all_img_patches = np.array(all_img_patches)
+        all_img_patches = np.nan_to_num(all_img_patches, nan=0.0, posinf=0.0, neginf=0.0)
+
+        all_target_patches = extract_patches(np.expand_dims(ref_data[0], axis=2), patch_size, overlap)
+        all_target_patches = np.nan_to_num(all_target_patches, nan=0.0, posinf=0.0, neginf=0.0)
+
+        total = all_img_patches.shape[1]
+        indices = np.arange(total)
+        np.random.shuffle(indices)
+        split = int(test_percent * total)
+        train_idx, test_idx = indices[:split], indices[split:]
+
+        train_imgs = []
+        test_imgs = []
+        for img in all_img_patches:
+            temp_train, temp_test = img[train_idx], img[test_idx]
+            train_imgs.append(temp_train)
+            test_imgs.append(temp_test)
+
+        train_imgs = np.squeeze(train_imgs, axis=-1)  
+        train_imgs = train_imgs.transpose(1, 2, 3, 0)
+
+        test_imgs = np.squeeze(test_imgs, axis=-1)  
+        test_imgs = test_imgs.transpose(1, 2, 3, 0)
+
+        train_tgts, test_tgts = np.array(all_target_patches[train_idx]), all_target_patches[test_idx]
+
+        return train_imgs, test_imgs, train_tgts, test_tgts, all_target_patches
