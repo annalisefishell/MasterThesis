@@ -124,7 +124,7 @@ def parameter_experiments(num_trees, max_tree_depths, num_sims, model, X_train,
     return output_dict
 
 
-def r2_score(y_true, y_pred):
+def cnn_r2_score(y_true, y_pred):
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
     y_true = tf.reshape(y_true, [-1])
@@ -162,7 +162,7 @@ def cnn(X_train, y_train, X_test, y_test, original_shape=(0,0,0), output=False, 
     model.compile(
         optimizer = 'adam',
         loss='mse',
-        metrics=['root_mean_squared_error', r2_score]
+        metrics=['root_mean_squared_error', cnn_r2_score]
     )
 
     # 6. Train using NumPy arrays
