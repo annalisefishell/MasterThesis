@@ -2,6 +2,7 @@ import numpy as np
 import rasterio
 import geopandas as gpd
 import plotting as p
+import ast
 
 from shapely.geometry import box, mapping
 from rasterio.mask import mask
@@ -168,7 +169,7 @@ def get_sentinel2(aoi, file_path, padding, temp_file='', list_files=[], plot=Tru
 
         if plot:
             title = 'Sentinel 2 - Red Band ' + file_path.split('/')[-1].split('_')[2]
-            p.plot_raster(data[3], title, 'RdGy_r')
+            p.plot_raster(data[3], title, 'BuGn')
 
         return data, profile
 
@@ -184,7 +185,7 @@ def get_interferogram(aoi, file_path, padding, original_path='', plot=True):
 
         if plot:
             title = 'Sentinel 1 - Interferogram ' + '-'.join(file_path.split('/')[-1].split('_')[0:2])
-            p.plot_raster(data[0], title, 'viridis')
+            p.plot_raster(data[0], title, 'BuGn')
 
         return data, profile
 
@@ -202,7 +203,7 @@ def get_capella(aoi, file_path, padding, original_file='', plot=True):
         
         if plot:
             title = 'Capella - Backscatter ' + file_path.split('/')[-1].split('_')[1]
-            p.plot_raster(data[0], title, 'coolwarm')
+            p.plot_raster(data[0], title, 'BuGn')
 
         return data, profile
 
@@ -220,7 +221,7 @@ def get_iceye(aoi, file_path, padding, original_file='', plot=True):
         
         if plot:
             title = 'Iceye - Backscatter ' + file_path.split('/')[-1].split('_')[-2]
-            p.plot_raster(data[0], title, 'coolwarm')
+            p.plot_raster(data[0], title, 'BuGn')
 
         return data, profile
 
@@ -237,7 +238,7 @@ def get_terrasar(aoi, file_path, padding, original_file='', plot=True):
         data = np.expand_dims(np.ma.masked_invalid(min_max_normalize(data)), axis=0)
         
         if plot:
-            p.plot_raster(data[0], 'TerraSAR - Polarizarion HH (23/05/2022)', 'coolwarm')
+            p.plot_raster(data[0], 'TerraSAR - Polarizarion HH (23/05/2022)', 'BuGn')
 
         return data, profile
 
@@ -251,7 +252,7 @@ def get_ref_data(aoi, file_path, padding, original_path='', plot=True):
         data = np.expand_dims(np.pad(data[0], padding, mode='constant'), axis=0)
 
         if plot:
-            p.plot_raster(data[0], 'Woody AGB 2019 - Harris et al. 2021', 'rainbow', 
+            p.plot_raster(data[0], 'Woody AGB - Harris et al. 2021', 'BuGn', 
                           normalized=False, cbar_label='Mg/ha')
             
         return data, profile
@@ -318,3 +319,72 @@ def get_test_train_data(combined, n_pixels, n_bands, ref_data, test_percent=0.3,
         train_tgts, test_tgts = np.array(all_target_patches[train_idx]), all_target_patches[test_idx]
 
         return train_imgs, test_imgs, train_tgts, test_tgts, all_target_patches
+    
+
+def string_to_dict(s):
+    data = ast.literal_eval(s.strip())
+    return data
+
+def remove_item(list, item):
+    res = [i for i in list if i != item]
+    return res
+
+def combine_dicts(key, main_dict, add_dict):
+    if key in main_dict:
+        old_val = main_dict[key]
+
+        for k in old_val.keys():
+          old_list = old_val[k]
+          new_list = add_dict[k] 
+          new_val = []
+          for i in range(len(old_list)):
+            merged = old_list[i] + new_list[i]
+            new_val.append(merged)
+
+          old_val[k] = new_val
+
+        main_dict.update({key: old_val})
+    else:
+        main_dict.update({key: add_dict})
+    return main_dict
+
+def read_eval_file(file_path):
+    file = open(file_path, 'r').readlines()
+    file = remove_item(file, '\n')
+
+    results = {}
+    for i in range(0, len(file) - 1, 2):
+        key = file[i].strip().strip(':').split()
+        key = key[0] + ' ' + key[-1]
+
+        val = string_to_dict(file[i+1])
+
+        results = combine_dicts(key, results, val)
+    return results
+
+def get_metrics(my_dict, key):
+    if type(my_dict[key])!=dict:
+        metric_list = list(my_dict[key])
+    else:
+        metric_list = list(my_dict[key].values())[0]
+
+    run_time = np.mean(metric_list[0])
+    rmse = np.mean(metric_list[1])
+    r2 = np.mean(metric_list[2])
+
+    return run_time, rmse, r2
+
+def get_mean_metrics(main_dict, key):
+    lst = main_dict[key]
+
+    times = []
+    rmses = []
+    r2s = []
+
+    for k in lst:
+        t, rmse, r2 = get_metrics(lst, k)
+        times.append(t)
+        rmses.append(rmse)
+        r2s.append(r2)
+
+    return times, rmses, r2s

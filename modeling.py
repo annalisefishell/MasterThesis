@@ -5,10 +5,11 @@ from sklearn.ensemble import RandomForestRegressor
 import xgboost as xgb
 from sklearn.metrics import r2_score, root_mean_squared_error
 import tensorflow as tf
-from tensorflow.keras.models import Sequential, Model
-from tensorflow.keras.layers import Input, MaxPool2D, Conv2D, Conv2DTranspose, \
-      Concatenate, Dropout, LeakyReLU, Dense, Activation, MaxPooling2D, \
-      UpSampling2D, Flatten
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import MaxPool2D, Conv2D, Conv2DTranspose, \
+      Concatenate, Dropout, Dense, Activation, MaxPooling2D, \
+      UpSampling2D, Flatten, BatchNormalization, Add, Resizing, concatenate
+from tensorflow.keras.optimizers import Adam
 import time
 
 def gbt(X_train, y_train, X_test, y_test, X_2d, height, width, 
@@ -37,7 +38,7 @@ def gbt(X_train, y_train, X_test, y_test, X_2d, height, width,
       
       # Reshape prediction to original 2D format for visualization or further use
       pred_image = model.predict(X_2d).reshape(height, width)
-      p.plot_raster(pred_image, 'GBT Prediction', 'rainbow', normalized=False, cbar_label='Mg/ha')
+      p.plot_raster(pred_image, 'GBT Prediction', 'BuGn', normalized=False, cbar_label='Mg/ha')
     
     return pred, running_time, rmse, r2
 
@@ -71,7 +72,7 @@ def rf(X_train, y_train, X_test, y_test, X_2d, height, width,
         
         # Reshape prediction to original 2D format for visualization or further use
         pred_image = model.predict(X_2d).reshape(height, width)
-        p.plot_raster(pred_image, 'RF Prediction', 'rainbow', normalized=False, cbar_label='Mg/ha')
+        p.plot_raster(pred_image, 'RF Prediction', 'BuGn', normalized=False, cbar_label='Mg/ha')
     
     return pred, running_time, rmse, r2
 
@@ -98,7 +99,7 @@ def mlr(X_train, y_train, X_test, y_test, X_2d, height, width, output=True):
         
         # Reshape prediction to original 2D format for visualization or further use
         pred_image = model.predict(X_2d).reshape(height, width)
-        p.plot_raster(pred_image, 'MLR Prediction', 'rainbow', normalized=False, cbar_label='Mg/ha')
+        p.plot_raster(pred_image, 'MLR Prediction', 'BuGn', normalized=False, cbar_label='Mg/ha')
     
     return pred, running_time, rmse, r2
 
@@ -184,3 +185,76 @@ def cnn(X_train, y_train, X_test, y_test, original_shape=(0,0,0), output=False, 
         print(f"Test R2: {r2}")
 
     return model, runtime, rmse, r2
+
+def residual_block(x, filters, kernel_size=3):
+    shortcut = x
+    x = Conv2D(filters, kernel_size, padding='same', activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Conv2D(filters, kernel_size, padding='same')(x)
+    x = BatchNormalization()(x)
+
+    x = Add()([shortcut, x])
+    x = Activation('relu')(x)
+    return x
+
+def unet_encoder_block(inputs, num_filters, bottleneck=False): # work on documentation here down
+   '''Builds the encoder sections of the unet models'''
+  
+   # Convolution with 3x3 filter followed by ReLU activation 
+   x = Conv2D(num_filters, 3, padding = 'same')(inputs) 
+   x = Activation('relu')(x) 
+      
+   # Convolution with 3x3 filter followed by ReLU activation 
+   x = Conv2D(num_filters, 3, padding = 'same')(x) 
+   x = Activation('relu')(x) 
+  
+   if not bottleneck:
+      # Max Pooling with 2x2 filter 
+      x = MaxPool2D(pool_size = (2, 2), strides = 2)(x) 
+      
+   return x
+
+def unet_decoder_block(inputs, skip_features, num_filters): 
+   '''Builds the decoder sections of the unet models'''
+
+	# Upsampling with 2x2 filter
+   x = Conv2DTranspose(num_filters, (2, 2), strides = 2, padding = 'same')(inputs) 
+	
+	# Copy and crop the skip features 
+   skip_features = Resizing(x.shape[1], x.shape[2])(skip_features)
+   x = Concatenate()([x, skip_features]) 
+	
+	# Convolution with 3x3 filter followed by ReLU activation 
+   x = Conv2D(num_filters, 3, padding = 'same')(x) 
+   x = Activation('relu')(x) 
+
+	# Convolution with 3x3 filter followed by ReLU activation 
+   x = Conv2D(num_filters, 3, padding = 'same')(x) 
+   x = Activation('relu')(x) 
+	
+   return x
+
+def inception_module(x, 
+                     filters_1x1, 
+                     filters_3x3_reduce, filters_3x3,
+                     filters_5x5_reduce, filters_5x5,
+                     filters_pool_proj, 
+                     name=None):
+    # 1x1 Convolution Branch
+    branch1x1 = Conv2D(filters_1x1, (1,1), padding='same', activation='relu')(x)
+
+    # 1x1 Convolution -> 3x3 Convolution Branch
+    branch3x3 = Conv2D(filters_3x3_reduce, (1,1), padding='same', activation='relu')(x)
+    branch3x3 = Conv2D(filters_3x3, (3,3), padding='same', activation='relu')(branch3x3)
+
+    # 1x1 Convolution -> 5x5 Convolution Branch
+    branch5x5 = Conv2D(filters_5x5_reduce, (1,1), padding='same', activation='relu')(x)
+    branch5x5 = Conv2D(filters_5x5, (5,5), padding='same', activation='relu')(branch5x5)
+
+    # MaxPooling -> 1x1 Convolution Branch
+    branch_pool = MaxPooling2D((3,3), strides=(1,1), padding='same')(x)
+    branch_pool = Conv2D(filters_pool_proj, (1,1), padding='same', activation='relu')(branch_pool)
+
+    # Concatenate all branches
+    x = concatenate([branch1x1, branch3x3, branch5x5, branch_pool], axis=3, name=name)
+    return x
