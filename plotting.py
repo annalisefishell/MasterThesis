@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import geopandas as gpd
+import numpy as np
 from matplotlib.patches import Patch
 
 LATIN_AMERICAN_COUNTRIES = [
@@ -18,7 +19,19 @@ EUROPEAN_COUNTRIES = [
 COLOR_TIME = "#9467BD"  # Purple - Time
 COLOR_RMSE = "#5BA698"  # Teal - RMSE
 COLOR_R2 = "#D62728"    # Red - R²
-COLORS = ["#da4646", "#a266cc", "#6699cc", "#17becf"]
+COLORS_REGIONS = ["#2CA02C", "#1F77B4", "#9467BD", "#FF7F0E"]
+COLORS_DATA = [
+    "#2C5F2D",  # deep forest green - all sar
+    "#2C5F2D",  # deep forest green - all sar
+    "#4682B4",  # steel blue (cooler than sky blue, more defined) - optical
+    "#2C5F2D",  # deep forest green - all sar
+    "#8FBC8F",  # light green - in sar
+    "#4682B4",  # steel blue (cooler than sky blue, more defined) - optical
+    "#8FBC8F",  # light green - in sar
+    "#4682B4",  # steel blue (cooler than sky blue, more defined) - optical
+    "#8FBC8F",  # light green - in sar
+    "#4682B4"  # steel blue (cooler than sky blue, more defined) - optical
+]
 
 REGION_LABELS = ['Germany', 'Panama', 'Switzerland', 'Italy']
 
@@ -44,7 +57,7 @@ def plot_raster(raster, title, cmap, normalized=True, cbar_label=''):
 def plot_aois_on_map(polygons=['de', 'swiss', 'italy', 'pa']):
     fig, axs = plt.subplots(1, 2, figsize=(10, 20))
 
-    world = gpd.read_file("https://naturalearth.s3.amazonaws.com/110m_cultural/ne_110m_admin_0_countries.zip")
+    world = gpd.read_file("/Users/annalisefishell/Downloads/ne_110m_admin_0_countries/ne_110m_admin_0_countries.shp")
 
     # Panama
     # Filter to only Latin American countries
@@ -52,10 +65,10 @@ def plot_aois_on_map(polygons=['de', 'swiss', 'italy', 'pa']):
     latam = latam_raw.explode(index_parts=False)
     latam = latam[latam.geometry.centroid.x.between(-120, -30) & latam.geometry.centroid.y.between(-60, 30)]
 
-    polygon_gdf = gpd.GeoDataFrame(geometry=polygons[-1], crs="EPSG:4326")
+    polygon_gdf = gpd.GeoDataFrame(geometry=[polygons[-1]], crs="EPSG:4326")
 
     # Define colors and labels
-    colors = ['indigo']
+    colors = ["#a266cc"]
     labels = ['Panama']
 
     # Plotting
@@ -92,7 +105,7 @@ def plot_aois_on_map(polygons=['de', 'swiss', 'italy', 'pa']):
     polygon_gdf = gpd.GeoDataFrame(geometry=polygons[0:3], crs="EPSG:4326")
 
     # Define colors and labels
-    colors = ['green', 'red', 'blue']
+    colors = ["#da4646", "#6699cc", "#17becf"]
     labels = ['Germany', 'Switzerland', 'Italy']
 
     # Plotting
@@ -153,7 +166,7 @@ def plot_mean_metrics(times, rmses, r2s, ax1, ax2):
 
 def plot_all_mean_metrics(times, rmses, r2s, ax1, ax2, ax3, i):
     # Plot Running Time
-    ax1.plot(times, color=COLORS[i], marker='o', linewidth=2, label=REGION_LABELS[i])
+    ax1.plot(times, color=COLORS_REGIONS[i], marker='o', linewidth=2, label=REGION_LABELS[i])
     ax1.set_title('Running Time', fontsize=16)
     ax1.set_ylabel('Seconds', fontsize=12)
     ax1.set_xlabel('Model parameters (num trees, tree depth)', fontsize=12)
@@ -162,7 +175,7 @@ def plot_all_mean_metrics(times, rmses, r2s, ax1, ax2, ax3, i):
     ax1.grid(True, linestyle='--', alpha=0.6)
 
     # Plot RMSE and R²
-    ax2.plot(rmses, color=COLORS[i], marker='s', linewidth=2, label=REGION_LABELS[i])
+    ax2.plot(rmses, color=COLORS_REGIONS[i], marker='s', linewidth=2, label=REGION_LABELS[i])
     ax2.set_title('RMSE', fontsize=16)
     ax2.set_ylabel('RMSE (Mg/ha)', fontsize=12)
     ax2.set_xlabel('Model parameters (num trees, tree depth)', fontsize=12)
@@ -171,7 +184,7 @@ def plot_all_mean_metrics(times, rmses, r2s, ax1, ax2, ax3, i):
     ax2.set_ylim([25, 84])
     ax2.grid(True, linestyle='--', alpha=0.6)
 
-    ax3.plot(r2s, color=COLORS[i], marker='^', linewidth=2, label=REGION_LABELS[i])
+    ax3.plot(r2s, color=COLORS_REGIONS[i], marker='^', linewidth=2, label=REGION_LABELS[i])
     ax3.set_title('$R^2$', fontsize=16)
     ax3.set_ylabel('$R^2$', fontsize=12)
     ax3.set_xlabel('Model parameters (num trees, tree depth)', fontsize=12)
@@ -184,3 +197,60 @@ def plot_all_mean_metrics(times, rmses, r2s, ax1, ax2, ax3, i):
         ax1.legend(fontsize=10)
         ax2.legend(fontsize=10)
         ax3.legend(fontsize=10)
+
+def plot_input_diff(r2_values, rmse_values, labels, x_positions, gap_centers):
+    fig, axs = plt.subplots(1, 2, figsize=(15, 6), gridspec_kw={'hspace': 0.5})
+
+    bars = axs[0].bar(x_positions, r2_values, color=COLORS_DATA)
+
+    # Set x-ticks at bar centers with correct labels
+    axs[0].set_xticks(x_positions, labels, rotation=45, ha='right', fontsize=10)
+    axs[0].set_ylabel('Percentage change', fontsize=12)
+    axs[0].set_xlabel('Data type', fontsize=12)
+    axs[0].set_title('R²', fontsize=14)
+
+    # Add group labels above bars
+    group_centers = [
+        np.mean([0, 1, 2]),      # Center of Group 1 (Germany)
+        np.mean([4, 5, 6]),      # Center of Group 2 (Panama)
+        np.mean([8, 9]),         # Center of Group 3 (Switzerland)
+        np.mean([11, 12])        # Center of Group 4 (Italy)
+    ]
+
+    for center, label in zip(group_centers, REGION_LABELS):
+        axs[0].text(center, max(r2_values) + 0.6, label, ha='center', va='bottom', fontsize=12)
+
+    for edge in gap_centers:
+        axs[0].axvline(x=edge, color='gray', linestyle='--', linewidth=1)
+
+    axs[0].set_ylim(0, max(r2_values) + 6.3)  # Add some vertical space for the labels
+
+
+
+    bars = axs[1].bar(x_positions, rmse_values, color=COLORS_DATA)
+
+    # Set x-ticks at bar centers with correct labels
+    axs[1].set_xticks(x_positions, labels, rotation=45, ha='right', fontsize=10)
+    axs[1].set_ylabel('Percentage change', fontsize=12)
+    axs[1].set_xlabel('Data type', fontsize=12)
+    axs[1].set_title('RMSE', fontsize=14)
+
+    # Add group labels above bars
+    group_centers = [
+        np.mean([0, 1, 2]),      # Center of Group 1 (Germany)
+        np.mean([4, 5, 6]),      # Center of Group 2 (Panama)
+        np.mean([8, 9]),         # Center of Group 3 (Switzerland)
+        np.mean([11, 12])        # Center of Group 4 (Italy)
+    ]
+
+    for center, label in zip(group_centers, REGION_LABELS):
+        axs[1].text(center, max(rmse_values) + 0.6, label, ha='center', va='bottom', fontsize=12)
+
+    for edge in gap_centers:
+        axs[1].axvline(x=edge, color='gray', linestyle='--', linewidth=1)
+
+    axs[1].set_ylim(0, max(rmse_values) + 13)  # Add some vertical space for the labels
+
+    plt.suptitle('Percentage change of evaluation metrics for different input data \n compared to a model with all inputs used', fontsize=16, fontweight='bold')
+    plt.tight_layout(rect=[0, 0, 1, 0.8])
+    plt.show()

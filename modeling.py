@@ -125,6 +125,20 @@ def parameter_experiments(num_trees, max_tree_depths, num_sims, model, X_train,
     return output_dict
 
 
+def cnn_arch_experiments(X, y, arch, num_sims):
+    output_dict = {}
+    time_list = []
+    rmse_list = []
+    r2_list = []
+    for i in range(num_sims):
+        _, runtime, rmse, r2 = cnn(X, y, architecture=arch)
+        time_list.append(runtime)
+        rmse_list.append(rmse)
+        r2_list.append(r2)
+    output_dict.update({arch: [time_list, rmse_list, r2_list]})
+
+    return output_dict
+
 def cnn_r2_score(y_true, y_pred):
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
@@ -142,26 +156,73 @@ def cnn_r2_score(y_true, y_pred):
     return tf.square(corr)
 
 
-def cnn(X_train, y_train, X_test, y_test, original_shape=(0,0,0), output=False, patch_size=200, 
-        architecture='simple'):
+def cnn(X_train, y_train, output=False, architecture='simple'):
     start = time.time()
-    input_shape = (patch_size, patch_size, X_train.shape[-1])
+    input_shape = (X_train.shape[1], X_train.shape[2], X_train.shape[3])
+    inputs = tf.keras.Input(shape=input_shape)
 
-    if architecture=='simple':
-        model = Sequential([
-            Input(shape=input_shape),
-            Conv2D(16, 3, padding='same', activation='relu'),
-            MaxPooling2D(2),
-            Conv2D(32, 3, padding='same', activation='relu'),
-            UpSampling2D(2),  # restore spatial dims
-            Conv2D(original_shape, 3, padding='same', activation='linear')
-        ])
+    if architecture=='1simple':
+        x = Conv2D(32, kernel_size=3, padding='same', activation='relu')(inputs)
+        x = MaxPooling2D(2)(x)
+
+        # Residual blocks
+        for i in range(1):
+            x = Conv2D(32*(i+2), kernel_size=3, padding='same', activation='relu')(x)
+
+        x = UpSampling2D(2)(x)
+
+        x = Conv2D(1, 3, padding='same', activation='linear')(x)
+
+        model = Model(inputs, x)
+
+    elif architecture=='2simple':
+        x = Conv2D(32, kernel_size=3, padding='same', activation='relu')(inputs)
+        x = MaxPooling2D(2)(x)
+
+        # Residual blocks
+        for i in range(2):
+            x = Conv2D(32*(i+2), kernel_size=3, padding='same', activation='relu')(x)
+
+        x = UpSampling2D(2)(x)
+
+        x = Conv2D(1, 3, padding='same', activation='linear')(x)
+
+        model = Model(inputs, x)
+
+    elif architecture=='3simple':
+        x = Conv2D(32, kernel_size=3, padding='same', activation='relu')(inputs)
+        x = MaxPooling2D(2)(x)
+
+        # Residual blocks
+        for i in range(3):
+            x = Conv2D(32*(i+2), kernel_size=3, padding='same', activation='relu')(x)
+
+        x = UpSampling2D(2)(x)
+
+        x = Conv2D(1, 3, padding='same', activation='linear')(x)
+
+        model = Model(inputs, x)
+
+    elif architecture=='5simple':
+        x = Conv2D(32, kernel_size=3, padding='same', activation='relu')(inputs)
+        x = MaxPooling2D(2)(x)
+
+        # Residual blocks
+        for i in range(5):
+            x = Conv2D(32*(i+2), kernel_size=3, padding='same', activation='relu')(x)
+
+        x = UpSampling2D(2)(x)
+
+        x = Conv2D(1, 3, padding='same', activation='linear')(x)
+
+        model = Model(inputs, x)
+
 
     if output:
         model.summary()
 
     model.compile(
-        optimizer = 'adam',
+        optimizer = Adam(learning_rate=0.01), # increasing learning rate helps a lot!!!! stops from getting stuck in holes
         loss='mse',
         metrics=['root_mean_squared_error', cnn_r2_score]
     )
@@ -170,17 +231,16 @@ def cnn(X_train, y_train, X_test, y_test, original_shape=(0,0,0), output=False, 
     model.fit(
         x=X_train,
         y=y_train,
-        batch_size=16,
-        validation_data=(X_test, y_test),
-        epochs=10
+        batch_size=32,
+        # validation_data=(X_test, y_test),
+        epochs=50
     )
-    
+
     runtime = time.time() - start
-    loss, rmse, r2 = model.evaluate(X_test, y_test, batch_size=16)
+    _, rmse, r2 = model.evaluate(X_train, y_train, batch_size=16)
 
     if output:
         print(f"Training Time: {runtime:.2f} seconds")
-        print(f"Test MSE: {loss:.4f}")
         print(f"Test RMSE: {rmse}")
         print(f"Test R2: {r2}")
 
