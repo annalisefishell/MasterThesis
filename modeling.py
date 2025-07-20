@@ -38,7 +38,7 @@ def gbt(X_train, y_train, X_test, y_test, X_2d, height, width,
       
       # Reshape prediction to original 2D format for visualization or further use
       pred_image = model.predict(X_2d).reshape(height, width)
-      p.plot_raster(pred_image, 'GBT Prediction', 'BuGn', normalized=False, cbar_label='Mg/ha')
+      p.plot_raster(pred_image, 'GBT Prediction - Panama', 'BuGn', normalized=False, cbar_label='Mg/ha')
     
     return pred, running_time, rmse, r2
 
@@ -72,7 +72,7 @@ def rf(X_train, y_train, X_test, y_test, X_2d, height, width,
         
         # Reshape prediction to original 2D format for visualization or further use
         pred_image = model.predict(X_2d).reshape(height, width)
-        p.plot_raster(pred_image, 'RF Prediction', 'BuGn', normalized=False, cbar_label='Mg/ha')
+        p.plot_raster(pred_image, 'RF Prediction - Panama', 'BuGn', normalized=False, cbar_label='Mg/ha')
     
     return pred, running_time, rmse, r2
 
@@ -167,7 +167,7 @@ def cnn(X_train, y_train, output=False, architecture='simple'):
 
         # Residual blocks
         for i in range(1):
-            x = Conv2D(32*(i+2), kernel_size=3, padding='same', activation='relu')(x)
+            x = Conv2D(16*(i+1), kernel_size=3, padding='same', activation='relu')(x)
 
         x = UpSampling2D(2)(x)
 
@@ -176,12 +176,12 @@ def cnn(X_train, y_train, output=False, architecture='simple'):
         model = Model(inputs, x)
 
     elif architecture=='2simple':
-        x = Conv2D(32, kernel_size=3, padding='same', activation='relu')(inputs)
+        x = Conv2D(16, kernel_size=3, padding='same', activation='relu')(inputs)
         x = MaxPooling2D(2)(x)
 
         # Residual blocks
         for i in range(2):
-            x = Conv2D(32*(i+2), kernel_size=3, padding='same', activation='relu')(x)
+            x = Conv2D(16, kernel_size=3, padding='same', activation='relu')(x)
 
         x = UpSampling2D(2)(x)
 
